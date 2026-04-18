@@ -9,9 +9,9 @@ import os
 import requests
 from fetcher import fetch_all
 
-# ── 企业微信 Webhook（从环境变量读取，不要硬写在代码里）──────
-# 设置方法见 README，在 GitHub Secrets 里配置 WECOM_WEBHOOK_URL
-WECOM_WEBHOOK_URL = os.environ.get("WECOM_WEBHOOK_URL", "")
+# ── Server酱 SendKey（从环境变量读取，不要硬写在代码里）────────
+# 设置方法见 README，在 GitHub Secrets 里配置 SERVERCHAN_KEY
+SERVERCHAN_KEY = os.environ.get("SERVERCHAN_KEY", "")
 
 # ── Anthropic API Key（同样从环境变量读取）─────────────────
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
@@ -102,67 +102,67 @@ def generate_brief_text(data: dict) -> str:
         return f"⚠️ AI 摘要生成失败：{e}\n\n请检查 ANTHROPIC_API_KEY 是否正确配置。"
 
 
-# ── 2. 格式化完整早报消息 ─────────────────────────────────────
-def format_wecom_message(data: dict, ai_summary: str) -> dict:
+# ── 2. 格式化早报消息文字 ─────────────────────────────────────
+def format_message(data: dict, ai_summary: str) -> tuple:
     """
-    企业微信支持 markdown 格式的消息，这里格式化成易读的卡片样式。
+    返回 (title, content) 两个字符串。
+    Server酱消息分标题和正文两部分。
     """
     today = data.get("date", "")
     watchlist = data.get("watchlist", [])
-    
-    # 自选股行情表格
+
+    # 自选股行情
     stock_lines = []
     for q in watchlist:
         if "error" not in q:
             sign = "+" if q["change_pct"] >= 0 else ""
-            color = "warning" if q["change_pct"] >= 0 else "comment"  # 企业微信配色
+            arrow = "▲" if q["change_pct"] >= 0 else "▼"
             stock_lines.append(
-                f"> <font color=\"{color}\">{q['name']} {q['price']} 元  {sign}{q['change_pct']}%</font>"
+                f"- {q['name']}（{q['code']}）{q['price']} 元  {arrow}{sign}{q['change_pct']}%"
             )
         else:
-            stock_lines.append(f"> {q['name']}  数据异常")
-    
-    stocks_block = "\n".join(stock_lines) if stock_lines else "> 暂无数据"
-    
-    # 组装 markdown 正文
-    content = f"""# 📋 金融早报  {today}
+            stock_lines.append(f"- {q['name']}  数据异常")
 
-{ai_summary}
+    stocks_block = "\n".join(stock_lines) if stock_lines else "暂无数据"
+
+    title = f"📋 金融早报 {today}"
+
+    content = f"""{ai_summary}
 
 ---
+
 **自选股行情**
+
 {stocks_block}
 
 ---
+
 > 基金持仓数据来自公开季报，存在 1-2 个月滞后。本早报仅供参考，不构成投资建议。"""
 
-    return {
-        "msgtype": "markdown",
-        "markdown": {
-            "content": content
-        }
-    }
+    return title, content
 
 
-# ── 3. 推送到企业微信 ─────────────────────────────────────────
-def send_to_wecom(message: dict) -> bool:
+# ── 3. 推送到微信（通过 Server酱）────────────────────────────
+def send_to_wechat(title: str, content: str) -> bool:
     """
-    向企业微信群机器人 Webhook 发送消息。
-    返回 True 表示成功，False 表示失败。
+    调用 Server酱 API 把消息推送到微信。
+    需要配置环境变量 SERVERCHAN_KEY。
     """
-    if not WECOM_WEBHOOK_URL:
-        print("❌ 未配置 WECOM_WEBHOOK_URL，跳过推送")
+    if not SERVERCHAN_KEY:
+        print("❌ 未配置 SERVERCHAN_KEY，跳过推送")
         return False
-    
+
+    url = f"https://sctapi.ftqq.com/{SERVERCHAN_KEY}.send"
+
     try:
         resp = requests.post(
-            WECOM_WEBHOOK_URL,
-            json=message,
+            url,
+            data={"title": title, "desp": content},
             timeout=10
         )
         result = resp.json()
-        if result.get("errcode") == 0:
-            print("✅ 早报推送成功")
+        if result.get("data", {}).get("errno") == 0 or result.get("code") == 0:
+            print("✅ 早报推送成功，请查看微信")
             return True
         else:
             print(f"❌ 推送失败：{result}")
@@ -193,9 +193,9 @@ def main():
     print(ai_summary)
     
     # Step 3：推送
-    print("\n[3/3] 推送到企业微信...")
-    message = format_wecom_message(data, ai_summary)
-    send_to_wecom(message)
+    print("\n[3/3] 推送到微信...")
+    title, content = format_message(data, ai_summary)
+    send_to_wechat(title, content)
     
     print("\n🏁 早报生成完成")
 
