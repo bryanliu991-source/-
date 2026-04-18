@@ -1,0 +1,44 @@
+# .github/workflows/daily_brief.yml
+#
+# GitHub Actions 定时任务：每天早上 8:30 北京时间自动运行
+# 北京时间 = UTC+8，所以 cron 时间要减 8 小时 → UTC 00:30
+
+name: 每日金融早报
+
+on:
+  schedule:
+    # UTC 00:30 = 北京时间 08:30
+    - cron: "30 0 * * 1-5"   # 周一到周五（跳过周末）
+  
+  # 允许在 GitHub Actions 页面手动触发，方便测试
+  workflow_dispatch:
+
+jobs:
+  send-brief:
+    runs-on: ubuntu-latest
+    
+    steps:
+      # Step 1：拉取你的仓库代码
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # Step 2：安装 Python
+      - name: 配置 Python 环境
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Step 3：安装依赖库
+      - name: 安装依赖
+        run: |
+          pip install requests feedparser
+
+      # Step 4：运行早报脚本
+      # ANTHROPIC_API_KEY 和 WECOM_WEBHOOK_URL 从 GitHub Secrets 读取
+      # 设置方法：仓库页面 → Settings → Secrets and variables → Actions → New secret
+      - name: 生成并推送早报
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          WECOM_WEBHOOK_URL: ${{ secrets.WECOM_WEBHOOK_URL }}
+        run: |
+          python brief_generator.py
